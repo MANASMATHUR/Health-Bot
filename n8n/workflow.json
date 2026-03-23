@@ -1,0 +1,332 @@
+{
+  "name": "CalorAI — Telegram A/B Test Onboarding",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "calorai-telegram-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "1",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.message.text }}",
+              "operation": "equals",
+              "value2": "/start"
+            }
+          ]
+        }
+      },
+      "name": "Is /start?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/users/check",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "telegram_id",
+              "value": "={{ $json.message.from.id }}"
+            },
+            {
+              "name": "username",
+              "value": "={{ $json.message.from.username }}"
+            },
+            {
+              "name": "first_name",
+              "value": "={{ $json.message.from.first_name }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get/Create User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://statsigapi.net/v1/get_config",
+        "method": "POST",
+        "headerParametersUi": {
+          "parameter": [
+            {
+              "name": "STATSIG-API-KEY",
+              "value": "={{ $env.STATSIG_SERVER_SECRET }}"
+            }
+          ]
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "user",
+              "value": "={{ JSON.stringify({ userID: String($json.message.from.id) }) }}"
+            },
+            {
+              "name": "configName",
+              "value": "onboarding_flow_v1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Statsig — Get Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 200],
+      "notes": "Calls Statsig to assign user to control or test group"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.value?.group || $json.group || 'control' }}",
+              "operation": "equals",
+              "value2": "test"
+            }
+          ]
+        }
+      },
+      "name": "Test or Control?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "chat_id",
+              "value": "={{ $('Telegram Trigger').item.json.message.chat.id }}"
+            },
+            {
+              "name": "text",
+              "value": "👋 Welcome to CalorAI!\n\nI help you track meals and stay healthy.\n\nQuick commands:\n• /log — log a meal\n• /meals — view today's meals\n• /day — daily summary"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send Control Welcome",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 100],
+      "notes": "Control group: simple welcome message"
+    },
+    {
+      "parameters": {
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "chat_id",
+              "value": "={{ $('Telegram Trigger').item.json.message.chat.id }}"
+            },
+            {
+              "name": "text",
+              "value": "🎉 Welcome to CalorAI!\n\n*Step 1 of 3 — What's your main goal?*\n\nReply with a number:\n1️⃣ Lose weight\n2️⃣ Maintain weight\n3️⃣ Build muscle\n4️⃣ Just track meals"
+            },
+            {
+              "name": "parse_mode",
+              "value": "Markdown"
+            },
+            {
+              "name": "reply_markup",
+              "value": "{\"keyboard\":[[\"1️⃣ Lose weight\",\"2️⃣ Maintain weight\"],[\"3️⃣ Build muscle\",\"4️⃣ Just track meals\"]],\"one_time_keyboard\":true,\"resize_keyboard\":true}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Send Test Step 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 300],
+      "notes": "Test group: step 1 of guided onboarding"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/users/onboarding-step",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "telegram_id",
+              "value": "={{ $('Telegram Trigger').item.json.message.from.id }}"
+            },
+            {
+              "name": "step",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Update Onboarding Step",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/events",
+        "method": "POST",
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "telegram_id",
+              "value": "={{ $('Telegram Trigger').item.json.message.from.id }}"
+            },
+            {
+              "name": "event_name",
+              "value": "ab_assigned"
+            },
+            {
+              "name": "ab_group",
+              "value": "={{ $('Test or Control?').item.json.value?.group || 'control' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Log Assignment Event",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 500],
+      "notes": "Log group assignment to Supabase events table"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is /start?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is /start?": {
+      "main": [
+        [
+          {
+            "node": "Get/Create User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get/Create User": {
+      "main": [
+        [
+          {
+            "node": "Statsig — Get Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Statsig — Get Group": {
+      "main": [
+        [
+          {
+            "node": "Test or Control?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test or Control?": {
+      "main": [
+        [
+          {
+            "node": "Send Control Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Test Step 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Control Welcome": {
+      "main": [
+        [
+          {
+            "node": "Log Assignment Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Test Step 1": {
+      "main": [
+        [
+          {
+            "node": "Update Onboarding Step",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Onboarding Step": {
+      "main": [
+        [
+          {
+            "node": "Log Assignment Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "calorai"
+  },
+  "tags": []
+}
