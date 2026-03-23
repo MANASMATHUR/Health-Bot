@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "CalorAI",
+    "slug": "calorai",
+    "version": "1.0.0",
+    "scheme": "calorai",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#22c55e"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ai.calor.app"
+    },
+    "android": {
+      "package": "ai.calor.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#22c55e"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#22c55e"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    }
+  }
+}
