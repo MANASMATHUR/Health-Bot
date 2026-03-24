@@ -12,6 +12,8 @@
  *   GET  /api/analytics/dashboard        — dashboard stats
  *   POST /api/users/expo-token           — register Expo push token
  *   POST /webhook/telegram               — Telegram webhook (production)
+ *   POST /api/telegram/handle-update     — Telegram update from n8n (TELEGRAM_RECEIVER=n8n)
+ *   POST /api/users/sync-ab              — Persist Statsig arm after n8n Statsig call
  */
 
 require('dotenv').config();
@@ -21,6 +23,7 @@ const cron    = require('node-cron');
 const axios   = require('axios');
 const supabase = require('./supabase');
 const { logEvent } = require('./eventLogger');
+const { normalizeStatsigAssignment } = require('./statsig');
 const bot     = require('./bot');
 
 const app  = express();
@@ -28,6 +31,7 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 /* ═══════════════════════════════════════════════
    Meals API
@@ -110,7 +114,7 @@ app.delete('/api/meals/:id', async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════
-   Analytics API (Bonus Task 3)
+   Analytics API
 ═══════════════════════════════════════════════ */
 
 // GET /api/analytics/dashboard
@@ -249,21 +253,40 @@ app.post('/api/events', async (req, res) => {
     properties: properties || {},
   });
 
+  if (event_name === 'ab_assigned' && telegram_id != null && ab_group) {
+    await supabase.from('users').update({ ab_group }).eq('telegram_id', telegram_id);
+  }
+
   res.json({ success: true });
 });
 
+// Persist A/B arm after Statsig (n8n calls this immediately after the Statsig HTTP node).
+app.post('/api/users/sync-ab', async (req, res) => {
+  const { telegram_id, statsig_response } = req.body;
+  if (telegram_id == null) return res.status(400).json({ error: 'telegram_id required' });
+
+  const ab_group = normalizeStatsigAssignment(statsig_response);
+  const { error } = await supabase
+    .from('users')
+    .update({ ab_group })
+    .eq('telegram_id', telegram_id);
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ab_group });
+});
+
 /* ═══════════════════════════════════════════════
-   Expo Push Token Registration (Bonus Task 2)
+   Expo Push Token Registration
 ═══════════════════════════════════════════════ */
 
 app.post('/api/users/expo-token', async (req, res) => {
   const { telegram_id, expo_token } = req.body;
   if (!telegram_id || !expo_token) return res.status(400).json({ error: 'telegram_id and expo_token required' });
 
-  // Store token in users table (add expo_token column via migration if needed)
   const { error } = await supabase
     .from('users')
-    .upsert({ telegram_id, expo_token }, { onConflict: 'telegram_id' });
+    .update({ expo_token })
+    .eq('telegram_id', telegram_id);
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
@@ -280,8 +303,19 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
+// When Telegram → n8n → here, process non-/start updates (onboarding replies, /log, etc.)
+app.post('/api/telegram/handle-update', (req, res) => {
+  try {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  } catch (e) {
+    console.error('[handle-update]', e);
+    res.sendStatus(500);
+  }
+});
+
 /* ═══════════════════════════════════════════════
-   Daily Push Notifications Cron (Bonus Task 2)
+   Daily Push Notifications Cron
    Runs at 8pm every day
 ═══════════════════════════════════════════════ */
 
@@ -345,7 +379,6 @@ cron.schedule('0 20 * * *', async () => {
 });
 
 // ── Cron 2: Daily summary notification at 9pm ────────────────────────────────
-// Bonus Task 2: "A simple daily summary notification showing total meals logged"
 cron.schedule('0 21 * * *', async () => {
   console.log('[Cron] Sending daily summary notifications...');
 

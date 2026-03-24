@@ -1,16 +1,26 @@
 # CalorAI — Full-Stack Telegram Health Bot + A/B Test
 
-A production-ready system built for the CalorAI take-home assessment.
+A production-ready system for A/B-tested onboarding, meal tracking, realtime sync, and push notifications.
+
+## Demo checklist (if “nothing works”)
+
+1. **Supabase** — Create a project, run `backend/supabase_schema.sql` in the SQL Editor, then copy **Project URL** and **service_role** key into `backend/.env` as `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`.
+2. **Telegram** — Create a bot with [@BotFather](https://t.me/BotFather), set `TELEGRAM_BOT_TOKEN` in `backend/.env`.
+3. **Statsig** — Create a project, add an **experiment or dynamic config** named exactly `onboarding_flow_v1`. Add a parameter `group` with values `control` and `test` (or name groups so the variant name contains `test` for the test arm). Copy the **Server secret** into `STATSIG_SERVER_SECRET` in `backend/.env` and in n8n.
+4. **Pick one Telegram path** (same bot token cannot poll and use a Telegram webhook at the same time):
+   - **Fastest demo (recommended):** `cd backend && npm install && npm run dev` — bot uses **polling**; `/start`, onboarding, and meal commands all work without n8n.
+   - **n8n path:** In `backend/.env` set `TELEGRAM_RECEIVER=n8n`, run the API, import `n8n/workflow.json`, set `BACKEND_URL` (public URL to your machine, e.g. ngrok), `STATSIG_SERVER_SECRET`, `TELEGRAM_BOT_TOKEN`, activate the workflow, and let n8n own the Telegram connection. Non-`/start` messages are forwarded to `POST /api/telegram/handle-update` so onboarding steps 2–3 and `/log` still work.
+5. **Mobile / dashboard** — `EXPO_PUBLIC_API_BASE` must be reachable from the phone (use your LAN IP, not `localhost`). Open `dashboard/index.html` with the API running.
 
 ## What's built
 
-| Task | Status | Location |
-|------|--------|----------|
-| Primary: A/B Test chatbot (n8n + Statsig) | ✅ | `backend/`, `n8n/` |
-| Secondary: Health chatbot (log/edit/delete meals) | ✅ | `backend/src/bot.js` |
-| Bonus 1: Expo mobile app | ✅ | `mobile/CalorAI/` |
-| Bonus 2: Realtime sync + push notifications | ✅ | `hooks/useMeals.ts`, `src/index.js` |
-| Bonus 3: Analytics dashboard | ✅ | `dashboard/`, mobile analytics tab |
+| Feature | Location |
+|---------|----------|
+| A/B Test chatbot (n8n + Statsig) | `backend/`, `n8n/` |
+| Health chatbot (log/edit/delete meals) | `backend/src/bot.js` |
+| Expo mobile app | `mobile/CalorAI/` |
+| Realtime sync + push notifications | `hooks/useMeals.ts`, `src/index.js` |
+| Analytics dashboard | `dashboard/`, mobile analytics tab |
 
 ---
 
@@ -98,7 +108,7 @@ npm run dev        # starts bot in polling mode + Express API on port 3001
 4. Add your Telegram Bot credential in n8n
 5. Activate the workflow
 
-> **Note:** The backend bot (`src/bot.js`) handles the full health chatbot commands. The n8n workflow handles the `/start` A/B routing and can be extended for additional flows. Both can run simultaneously — set the bot to webhook mode and point it at n8n for `/start`, or use the standalone bot for all commands.
+> **Note:** The backend bot (`src/bot.js`) implements Statsig assignment, onboarding, and meal commands. The n8n workflow mirrors `/start` A/B routing. **Do not run Telegram polling and n8n’s Telegram trigger on the same bot token** — use either direct polling (`npm run dev`, default) or n8n + `TELEGRAM_RECEIVER=n8n` as described above. The workflow uses HTTP Request nodes at **typeVersion 4.2**; use a current n8n release or recreate the JSON body in older versions.
 
 ---
 
@@ -201,19 +211,6 @@ See [`EVALUATION_PLAN.md`](./EVALUATION_PLAN.md) for the full framework includin
 - **Bot runs in polling mode for development**: Simpler setup. Switch to webhook + a tunnel (e.g. ngrok) for testing n8n locally.
 - **n8n handles `/start` routing, bot.js handles everything else**: This avoids duplicating logic. In a larger system, all commands would go through n8n or all through the bot.
 - **Statsig fallback**: If `STATSIG_SERVER_SECRET` is not set, a deterministic hash-based 50/50 split is used so the app works without credentials.
-- **Two push notification crons**: Reminder at 8pm (nudge to log), summary at 9pm (total meals + calories). Separate times meet both Bonus 2 requirements without notification overlap.
+- **Two push notification crons**: Reminder at 8pm (nudge to log), summary at 9pm (total meals + calories). Separate times avoid notification overlap.
 - **No meal photo recognition**: Natural v2 feature — send a photo, get calories estimated by a vision model.
 
----
-
-## Approximate Time Breakdown
-
-| Section | Time |
-|---------|------|
-| Primary task (n8n + Statsig + event logging + evaluation plan) | ~2.5h |
-| Secondary task (health chatbot) | ~1h |
-| Bonus 1 (Expo app — meals screen, add, delete, edit) | ~1.5h |
-| Bonus 2 (Realtime + push notifications) | ~45min |
-| Bonus 3 (Analytics dashboard — web + in-app) | ~1h |
-| README + polish | ~30min |
-| **Total** | **~7.5h** |

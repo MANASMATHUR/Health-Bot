@@ -2,9 +2,9 @@
  * CalorAI Telegram Bot
  *
  * Handles two concerns:
- *   1. A/B Test onboarding (Primary Task): new users are assigned to
+ *   1. A/B Test onboarding: new users are assigned to
  *      control (simple welcome) or test (3-step guided onboarding).
- *   2. Health chatbot (Secondary Task): /log, /meals, /edit, /delete, /day
+ *   2. Health chatbot: /log, /meals, /edit, /delete, /day
  *
  * Run standalone: `node src/bot.js`
  * Or integrated with Express via src/index.js (webhook mode).
@@ -16,12 +16,23 @@ const supabase    = require('./supabase');
 const { assignGroup } = require('./statsig');
 const { logEvent }    = require('./eventLogger');
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-if (!TOKEN) throw new Error('TELEGRAM_BOT_TOKEN is required');
+const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
 
-// In dev use polling; in prod switch to webhook (see src/index.js)
+if (!TOKEN) {
+  console.warn(
+    '[CalorAI] TELEGRAM_BOT_TOKEN is empty — REST API and dashboard still run. Paste your @BotFather token into backend/.env and restart to enable Telegram.'
+  );
+  module.exports = { processUpdate() {} };
+  return;
+}
+
+// Polling only when this process receives Telegram traffic directly.
+// If TELEGRAM_RECEIVER=n8n, Telegram → n8n → /api/telegram/handle-update (no polling).
+const usePolling =
+  process.env.NODE_ENV !== 'production' && process.env.TELEGRAM_RECEIVER !== 'n8n';
+
 const bot = new TelegramBot(TOKEN, {
-  polling: process.env.NODE_ENV !== 'production',
+  polling: usePolling,
 });
 
 /* ─── Helpers ─── */
@@ -445,4 +456,8 @@ bot.onText(/\/day/, async (msg) => {
 bot.on('polling_error', (err) => console.error('[Bot polling error]', err.message));
 
 module.exports = bot;
-console.log('🤖 CalorAI bot started (polling mode)');
+console.log(
+  usePolling
+    ? '🤖 CalorAI bot started (Telegram polling — direct mode)'
+    : '🤖 CalorAI bot ready (n8n mode — updates via POST /api/telegram/handle-update)'
+);

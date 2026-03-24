@@ -15,6 +15,26 @@ require('dotenv').config();
 const STATSIG_SECRET = process.env.STATSIG_SERVER_SECRET;
 const EXPERIMENT_NAME = 'onboarding_flow_v1';
 
+const STATSIG_HEADERS = () => ({
+  'Content-Type': 'application/json',
+  'statsig-api-key': STATSIG_SECRET,
+  'STATSIG-API-KEY': STATSIG_SECRET,
+});
+
+/**
+ * Map Statsig get_config / experiment response to our two arms.
+ * Experiments often expose variant in `group_name`; param payloads may use `value.group`.
+ */
+function normalizeStatsigAssignment(data) {
+  if (!data || typeof data !== 'object') return 'control';
+  const v = data.value && data.value.group;
+  if (v === 'test' || v === 'Test') return 'test';
+  if (v === 'control' || v === 'Control') return 'control';
+  const gn = data.group_name != null ? String(data.group_name).toLowerCase() : '';
+  if (gn.includes('test')) return 'test';
+  return 'control';
+}
+
 /**
  * Assign a user to a test group.
  * Returns 'control' or 'test'.
@@ -28,26 +48,18 @@ async function assignGroup(telegramId) {
 
   try {
     const res = await axios.post(
-      'https://statsigapi.net/v1/get_config',
+      'https://api.statsig.com/v1/get_config',
       {
         user: { userID: String(telegramId) },
         configName: EXPERIMENT_NAME,
       },
       {
-        headers: {
-          'STATSIG-API-KEY': STATSIG_SECRET,
-          'Content-Type': 'application/json',
-        },
-        timeout: 3000,
+        headers: STATSIG_HEADERS(),
+        timeout: 8000,
       }
     );
 
-    const group = res.data?.value?.group || res.data?.group;
-    if (group === 'test' || group === 'control') return group;
-
-    // Statsig returns the experiment variant in data.value
-    // Default to control if not explicitly set to 'test'
-    return 'control';
+    return normalizeStatsigAssignment(res.data);
   } catch (err) {
     console.error('[Statsig] assignGroup error:', err.message);
     // Fallback on network error
@@ -66,7 +78,7 @@ async function logEvent(telegramId, eventName, value = null, metadata = {}) {
 
   try {
     await axios.post(
-      'https://statsigapi.net/v1/log_event',
+      'https://events.statsigapi.net/v1/log_event',
       {
         events: [
           {
@@ -79,11 +91,8 @@ async function logEvent(telegramId, eventName, value = null, metadata = {}) {
         ],
       },
       {
-        headers: {
-          'STATSIG-API-KEY': STATSIG_SECRET,
-          'Content-Type': 'application/json',
-        },
-        timeout: 3000,
+        headers: STATSIG_HEADERS(),
+        timeout: 8000,
       }
     );
   } catch (err) {
@@ -92,4 +101,4 @@ async function logEvent(telegramId, eventName, value = null, metadata = {}) {
   }
 }
 
-module.exports = { assignGroup, logEvent, EXPERIMENT_NAME };
+module.exports = { assignGroup, logEvent, normalizeStatsigAssignment, EXPERIMENT_NAME };

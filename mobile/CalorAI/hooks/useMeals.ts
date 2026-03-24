@@ -35,7 +35,7 @@ export function useMeals(telegramId: number | null) {
     load();
   }, [load]);
 
-  // Realtime subscription — Bonus Task 2
+  // Realtime subscription
   useEffect(() => {
     if (!telegramId) return;
 

@@ -9,7 +9,7 @@
       "name": "Telegram Trigger",
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1,
-      "position": [240, 300],
+      "position": [240, 380],
       "webhookId": "calorai-telegram-webhook",
       "credentials": {
         "telegramApi": {
@@ -21,206 +21,239 @@
     {
       "parameters": {
         "conditions": {
-          "string": [
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
             {
-              "value1": "={{ $json.message.text }}",
-              "operation": "equals",
-              "value2": "/start"
+              "id": "c-start",
+              "leftValue": "={{ $json.message?.text || '' }}",
+              "rightValue": "/start",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       },
       "name": "Is /start?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [460, 300]
+      "typeVersion": 2,
+      "position": [460, 380]
     },
     {
       "parameters": {
-        "url": "={{ $env.BACKEND_URL }}/api/users/check",
         "method": "POST",
-        "bodyParametersUi": {
-          "parameter": [
-            {
-              "name": "telegram_id",
-              "value": "={{ $json.message.from.id }}"
-            },
-            {
-              "name": "username",
-              "value": "={{ $json.message.from.username }}"
-            },
-            {
-              "name": "first_name",
-              "value": "={{ $json.message.from.first_name }}"
-            }
-          ]
-        },
+        "url": "={{ $env.BACKEND_URL }}/api/telegram/handle-update",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "name": "Forward to Backend Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 580],
+      "notes": "Sends onboarding replies, /log, etc. to Express so bot.processUpdate runs (set TELEGRAM_RECEIVER=n8n on backend)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/users/check",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $json.message.from.id, username: $json.message.from.username, first_name: $json.message.from.first_name }) }}",
         "options": {}
       },
       "name": "Get/Create User",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [680, 200]
+      "typeVersion": 4.2,
+      "position": [680, 280]
     },
     {
       "parameters": {
-        "url": "https://statsigapi.net/v1/get_config",
         "method": "POST",
-        "headerParametersUi": {
-          "parameter": [
+        "url": "https://api.statsig.com/v1/get_config",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "name": "STATSIG-API-KEY",
+              "name": "statsig-api-key",
               "value": "={{ $env.STATSIG_SERVER_SECRET }}"
-            }
-          ]
-        },
-        "bodyParametersUi": {
-          "parameter": [
-            {
-              "name": "user",
-              "value": "={{ JSON.stringify({ userID: String($json.message.from.id) }) }}"
             },
             {
-              "name": "configName",
-              "value": "onboarding_flow_v1"
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
         },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ user: { userID: String($('Telegram Trigger').item.json.message.from.id) }, configName: 'onboarding_flow_v1' }) }}",
         "options": {}
       },
       "name": "Statsig — Get Group",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [900, 200],
-      "notes": "Calls Statsig to assign user to control or test group"
+      "typeVersion": 4.2,
+      "position": [900, 280],
+      "notes": "Experiment or dynamic config named onboarding_flow_v1 in Statsig"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/users/sync-ab",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $('Telegram Trigger').item.json.message.from.id, statsig_response: $json }) }}",
+        "options": {}
+      },
+      "name": "Sync AB Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 280],
+      "notes": "Writes control/test to Supabase users row"
     },
     {
       "parameters": {
         "conditions": {
-          "string": [
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
             {
-              "value1": "={{ $json.value?.group || $json.group || 'control' }}",
-              "operation": "equals",
-              "value2": "test"
+              "id": "c-test",
+              "leftValue": "={{ $json.ab_group }}",
+              "rightValue": "test",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
-          ]
+          ],
+          "combinator": "and"
         }
       },
       "name": "Test or Control?",
       "type": "n8n-nodes-base.if",
-      "typeVersion": 1,
-      "position": [1120, 200]
+      "typeVersion": 2,
+      "position": [1340, 280]
     },
     {
       "parameters": {
-        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "method": "POST",
-        "bodyParametersUi": {
-          "parameter": [
-            {
-              "name": "chat_id",
-              "value": "={{ $('Telegram Trigger').item.json.message.chat.id }}"
-            },
-            {
-              "name": "text",
-              "value": "👋 Welcome to CalorAI!\n\nI help you track meals and stay healthy.\n\nQuick commands:\n• /log — log a meal\n• /meals — view today's meals\n• /day — daily summary"
-            },
-            {
-              "name": "parse_mode",
-              "value": "Markdown"
-            }
-          ]
-        },
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Telegram Trigger').item.json.message.chat.id, text: '👋 Welcome to CalorAI!\\n\\nI help you track meals and stay healthy.\\n\\nQuick commands:\\n• /log — log a meal\\n• /meals — view todays meals\\n• /day — daily summary', parse_mode: 'Markdown' }) }}",
         "options": {}
       },
       "name": "Send Control Welcome",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [1340, 100],
+      "typeVersion": 4.2,
+      "position": [1560, 160],
       "notes": "Control group: simple welcome message"
     },
     {
       "parameters": {
-        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
         "method": "POST",
-        "bodyParametersUi": {
-          "parameter": [
-            {
-              "name": "chat_id",
-              "value": "={{ $('Telegram Trigger').item.json.message.chat.id }}"
-            },
-            {
-              "name": "text",
-              "value": "🎉 Welcome to CalorAI!\n\n*Step 1 of 3 — What's your main goal?*\n\nReply with a number:\n1️⃣ Lose weight\n2️⃣ Maintain weight\n3️⃣ Build muscle\n4️⃣ Just track meals"
-            },
-            {
-              "name": "parse_mode",
-              "value": "Markdown"
-            },
-            {
-              "name": "reply_markup",
-              "value": "{\"keyboard\":[[\"1️⃣ Lose weight\",\"2️⃣ Maintain weight\"],[\"3️⃣ Build muscle\",\"4️⃣ Just track meals\"]],\"one_time_keyboard\":true,\"resize_keyboard\":true}"
-            }
-          ]
-        },
+        "url": "={{ $env.BACKEND_URL }}/api/events",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $('Telegram Trigger').item.json.message.from.id, event_name: 'welcome_shown', ab_group: $('Sync AB Group').item.json.ab_group }) }}",
+        "options": {}
+      },
+      "name": "Log Welcome Shown",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/events",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $('Telegram Trigger').item.json.message.from.id, event_name: 'ab_assigned', ab_group: $('Sync AB Group').item.json.ab_group }) }}",
+        "options": {}
+      },
+      "name": "Log AB Control",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $('Telegram Trigger').item.json.message.chat.id, text: \"🎉 Welcome to CalorAI!\\n\\n*Step 1 of 3 — What is your main goal?*\\n\\nReply with a number:\\n1️⃣ Lose weight\\n2️⃣ Maintain weight\\n3️⃣ Build muscle\\n4️⃣ Just track meals\", parse_mode: 'Markdown', reply_markup: { keyboard: [[\"1️⃣ Lose weight\",\"2️⃣ Maintain weight\"],[\"3️⃣ Build muscle\",\"4️⃣ Just track meals\"]], one_time_keyboard: true, resize_keyboard: true } }) }}",
         "options": {}
       },
       "name": "Send Test Step 1",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [1340, 300],
+      "typeVersion": 4.2,
+      "position": [1560, 400],
       "notes": "Test group: step 1 of guided onboarding"
     },
     {
       "parameters": {
-        "url": "={{ $env.BACKEND_URL }}/api/users/onboarding-step",
         "method": "POST",
-        "bodyParametersUi": {
-          "parameter": [
-            {
-              "name": "telegram_id",
-              "value": "={{ $('Telegram Trigger').item.json.message.from.id }}"
-            },
-            {
-              "name": "step",
-              "value": "1"
-            }
-          ]
-        },
+        "url": "={{ $env.BACKEND_URL }}/api/users/onboarding-step",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $('Telegram Trigger').item.json.message.from.id, step: '1' }) }}",
         "options": {}
       },
       "name": "Update Onboarding Step",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [1560, 300]
+      "typeVersion": 4.2,
+      "position": [1780, 400]
     },
     {
       "parameters": {
-        "url": "={{ $env.BACKEND_URL }}/api/events",
         "method": "POST",
-        "bodyParametersUi": {
-          "parameter": [
-            {
-              "name": "telegram_id",
-              "value": "={{ $('Telegram Trigger').item.json.message.from.id }}"
-            },
-            {
-              "name": "event_name",
-              "value": "ab_assigned"
-            },
-            {
-              "name": "ab_group",
-              "value": "={{ $('Test or Control?').item.json.value?.group || 'control' }}"
-            }
-          ]
-        },
+        "url": "={{ $env.BACKEND_URL }}/api/events",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $('Telegram Trigger').item.json.message.from.id, event_name: 'onboarding_step_1_shown', ab_group: 'test' }) }}",
         "options": {}
       },
-      "name": "Log Assignment Event",
+      "name": "Log Step 1 Shown",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 3,
-      "position": [1340, 500],
-      "notes": "Log group assignment to Supabase events table"
+      "typeVersion": 4.2,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/events",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $('Telegram Trigger').item.json.message.from.id, event_name: 'ab_assigned', ab_group: $('Sync AB Group').item.json.ab_group }) }}",
+        "options": {}
+      },
+      "name": "Log AB Test",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 400]
     }
   ],
   "connections": {
@@ -243,6 +276,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Forward to Backend Bot",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -261,6 +301,17 @@
       "main": [
         [
           {
+            "node": "Sync AB Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sync AB Group": {
+      "main": [
+        [
+          {
             "node": "Test or Control?",
             "type": "main",
             "index": 0
@@ -272,14 +323,14 @@
       "main": [
         [
           {
-            "node": "Send Control Welcome",
+            "node": "Send Test Step 1",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Send Test Step 1",
+            "node": "Send Control Welcome",
             "type": "main",
             "index": 0
           }
@@ -290,7 +341,18 @@
       "main": [
         [
           {
-            "node": "Log Assignment Event",
+            "node": "Log Welcome Shown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Welcome Shown": {
+      "main": [
+        [
+          {
+            "node": "Log AB Control",
             "type": "main",
             "index": 0
           }
@@ -312,7 +374,18 @@
       "main": [
         [
           {
-            "node": "Log Assignment Event",
+            "node": "Log Step 1 Shown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Step 1 Shown": {
+      "main": [
+        [
+          {
+            "node": "Log AB Test",
             "type": "main",
             "index": 0
           }
