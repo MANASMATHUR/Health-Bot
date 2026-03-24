@@ -1,7 +1,3 @@
--- ============================================================
--- CalorAI - Supabase Schema
--- Run this in your Supabase SQL editor
--- ============================================================
 
 -- Users table (Telegram users)
 CREATE TABLE IF NOT EXISTS users (
